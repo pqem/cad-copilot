@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "cad-copilot": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "cad-copilot-mcp"],
+      "cwd": "/home/pablo/projects/cad-copilot"
+    }
+  }
+}
