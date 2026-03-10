@@ -58,13 +58,9 @@ class TestAddWallDimensions:
         dims = [e for e in msp if e.dxftype() == "DIMENSION"]
         assert len(dims) == 0
 
-    @pytest.mark.xfail(
-        reason="Bug: add_wall_dimensions no guarda muro de longitud 0 antes de llamar "
-        "add_aligned_dimension; ezdxf lanza ZeroDivisionError. Reportado como bug.",
-        raises=ZeroDivisionError,
-        strict=True,
-    )
-    def test_zero_length_wall_raises_bug(self, doc, msp):
-        """Documenta bug preexistente: muro de longitud 0 sin aberturas lanza error."""
+    def test_zero_length_wall_is_skipped(self, doc, msp):
+        """Muros de longitud 0 se saltean sin error."""
         wall = Wall(id="W1", start=(2.0, 2.0), end=(2.0, 2.0), thickness=0.15)
         add_wall_dimensions(msp, [wall])
+        dims = [e for e in msp if e.dxftype() == "DIMENSION"]
+        assert len(dims) == 0
