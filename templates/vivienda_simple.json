@@ -1,0 +1,104 @@
+{
+  "walls": [
+    {
+      "id": "w1",
+      "start": [0, 0],
+      "end": [6, 0],
+      "thickness": 0.30,
+      "classification": "exterior_portante",
+      "openings": [
+        {
+          "type": "door",
+          "mechanism": "hinged",
+          "width": 0.90,
+          "height": 2.10,
+          "position_along_wall": 1.0
+        },
+        {
+          "type": "window",
+          "mechanism": "sliding",
+          "width": 1.50,
+          "height": 1.10,
+          "sill_height": 0.90,
+          "position_along_wall": 3.5
+        }
+      ]
+    },
+    {
+      "id": "w2",
+      "start": [6, 0],
+      "end": [6, 4],
+      "thickness": 0.30,
+      "classification": "exterior_portante",
+      "openings": [
+        {
+          "type": "window",
+          "mechanism": "sliding",
+          "width": 1.20,
+          "height": 1.10,
+          "sill_height": 0.90,
+          "position_along_wall": 1.4
+        }
+      ]
+    },
+    {
+      "id": "w3",
+      "start": [6, 4],
+      "end": [0, 4],
+      "thickness": 0.30,
+      "classification": "exterior_portante",
+      "openings": []
+    },
+    {
+      "id": "w4",
+      "start": [0, 4],
+      "end": [0, 0],
+      "thickness": 0.30,
+      "classification": "exterior_portante",
+      "openings": []
+    },
+    {
+      "id": "w5",
+      "start": [3, 0],
+      "end": [3, 4],
+      "thickness": 0.15,
+      "classification": "interior",
+      "openings": [
+        {
+          "type": "door",
+          "mechanism": "hinged",
+          "width": 0.80,
+          "height": 2.10,
+          "position_along_wall": 0.5
+        }
+      ]
+    }
+  ],
+  "spaces": [
+    {
+      "name": "LIVING-COMEDOR",
+      "function": "living",
+      "bounded_by": ["w1", "w5", "w3", "w4"]
+    },
+    {
+      "name": "DORMITORIO",
+      "function": "dormitorio",
+      "bounded_by": ["w5", "w2", "w3"]
+    }
+  ],
+  "paper_config": {
+    "size": "A3",
+    "orientation": "landscape",
+    "scale": 50,
+    "margins": [25, 10, 10, 10]
+  },
+  "title_block": {
+    "project": "VIVIENDA UNIFAMILIAR",
+    "drawing_name": "PLANTA BAJA",
+    "location": "PLOTTIER, NEUQUEN",
+    "professional": "ARQ. PABLO QUEVEDO",
+    "license_number": "CPTN 1234",
+    "date": "2026-03-10",
+    "sheet": "1/1"
+  }
+}
