@@ -5,14 +5,12 @@ Coloca MTEXT con el nombre del local y su superficie calculada.
 
 from __future__ import annotations
 
-import math
 
 from ezdxf.layouts import BaseLayout
 from shapely.geometry import Polygon
 
 from cad_copilot.schemas.space import Space
 from cad_copilot.schemas.wall import Wall
-from cad_copilot.engine.walls import _perpendicular_offset
 
 
 def _calculate_space_polygon(
