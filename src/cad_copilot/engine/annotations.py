@@ -8,7 +8,6 @@ from __future__ import annotations
 import math
 
 from ezdxf.layouts import BaseLayout
-from ezdxf.math import Vec2
 
 from cad_copilot.schemas.wall import Wall
 
@@ -86,6 +85,14 @@ def add_wall_dimensions(
         dimstyle: Estilo de cota.
     """
     for wall in walls:
+        length = math.hypot(
+            wall.end[0] - wall.start[0],
+            wall.end[1] - wall.start[1],
+        )
+        # Saltar muros de longitud cero para evitar ZeroDivisionError
+        if length == 0:
+            continue
+
         # Cota del muro completo (start a end)
         add_aligned_dimension(
             msp,
@@ -97,12 +104,6 @@ def add_wall_dimensions(
 
         # Cotas de las aberturas dentro del muro
         if wall.openings:
-            length = math.hypot(
-                wall.end[0] - wall.start[0],
-                wall.end[1] - wall.start[1],
-            )
-            if length == 0:
-                continue
 
             # Dirección unitaria del muro
             dx = (wall.end[0] - wall.start[0]) / length
