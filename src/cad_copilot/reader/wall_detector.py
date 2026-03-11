@@ -41,6 +41,11 @@ EXCLUDE_LAYER_PATTERNS = {
     "proyecci", "punta", "blocks",
 }
 
+# Layers numéricos (pen width) que son pluma fina → no son muros.
+# En planos argentinos, los layers 0.01-0.10 son líneas de detalle/cotas.
+# Los muros reales están en layers >= 0.15 (pluma gruesa).
+THIN_PEN_LAYERS = {"0", "0.01", "0.05", "0.07", "0.1", "0.10", "005", "01"}
+
 
 @dataclass
 class _Line:
@@ -68,6 +73,8 @@ class _Line:
 
 def _should_skip_layer(layer_name: str) -> bool:
     """Determina si un layer probablemente NO contiene muros."""
+    if layer_name in THIN_PEN_LAYERS:
+        return True
     name_lower = layer_name.lower()
     return any(pattern in name_lower for pattern in EXCLUDE_LAYER_PATTERNS)
 

@@ -252,10 +252,11 @@ class TestDetectWallsVertical:
     def test_detects_vertical_wall(self):
         doc = ezdxf.new("R2013")
         msp = doc.modelspace()
+        doc.layers.add("W", color=1)
 
         # Muro vertical
-        msp.add_line((0, 0), (0, 5))
-        msp.add_line((0.20, 0), (0.20, 5))
+        msp.add_line((0, 0), (0, 5), dxfattribs={"layer": "W"})
+        msp.add_line((0.20, 0), (0.20, 5), dxfattribs={"layer": "W"})
 
         walls = detect_walls(doc, include_polylines=False, include_line_pairs=True)
         assert len(walls) >= 1
@@ -264,11 +265,12 @@ class TestDetectWallsVertical:
     def test_detects_angled_wall(self):
         doc = ezdxf.new("R2013")
         msp = doc.modelspace()
+        doc.layers.add("W", color=1)
 
         # Muro a 45 grados
-        msp.add_line((0, 0), (5, 5))
         d = 0.15 / math.sqrt(2)
-        msp.add_line((d, -d), (5 + d, 5 - d))
+        msp.add_line((0, 0), (5, 5), dxfattribs={"layer": "W"})
+        msp.add_line((d, -d), (5 + d, 5 - d), dxfattribs={"layer": "W"})
 
         walls = detect_walls(doc, include_polylines=False, include_line_pairs=True)
         assert len(walls) >= 1
@@ -279,14 +281,15 @@ class TestDetectWallsMultiple:
     def test_detects_multiple_walls(self):
         doc = ezdxf.new("R2013")
         msp = doc.modelspace()
+        doc.layers.add("W", color=1)
 
         # Muro 1 (horizontal)
-        msp.add_line((0, 0), (5, 0))
-        msp.add_line((0, 0.15), (5, 0.15))
+        msp.add_line((0, 0), (5, 0), dxfattribs={"layer": "W"})
+        msp.add_line((0, 0.15), (5, 0.15), dxfattribs={"layer": "W"})
 
         # Muro 2 (vertical, bien separado)
-        msp.add_line((10, 0), (10, 5))
-        msp.add_line((10.20, 0), (10.20, 5))
+        msp.add_line((10, 0), (10, 5), dxfattribs={"layer": "W"})
+        msp.add_line((10.20, 0), (10.20, 5), dxfattribs={"layer": "W"})
 
         walls = detect_walls(doc, include_polylines=False, include_line_pairs=True)
         assert len(walls) == 2
@@ -299,11 +302,14 @@ class TestDetectWallsIds:
     def test_sequential_ids(self):
         doc = ezdxf.new("R2013")
         msp = doc.modelspace()
+        doc.layers.add("W", color=1)
 
-        msp.add_line((0, 0), (5, 0))
-        msp.add_line((0, 0.15), (5, 0.15))
+        msp.add_line((0, 0), (5, 0), dxfattribs={"layer": "W"})
+        msp.add_line((0, 0.15), (5, 0.15), dxfattribs={"layer": "W"})
         msp.add_lwpolyline(
-            [(10, 0), (15, 0), (15, 0.15), (10, 0.15)], close=True
+            [(10, 0), (15, 0), (15, 0.15), (10, 0.15)],
+            close=True,
+            dxfattribs={"layer": "W"},
         )
 
         walls = detect_walls(doc)

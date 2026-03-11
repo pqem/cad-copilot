@@ -3,6 +3,9 @@
 Reutiliza el motor de annotations.py existente, aplicando cotas solo
 a muros que no tienen cota asociada. Usa dimstyle IRAM_ARQ y layer
 A-ANNO-DIMS (convención profesional AIA).
+
+Cuando se trabaja sobre un DXF existente, se intenta detectar el dimstyle
+del plano para que las cotas nuevas tengan el mismo tamaño.
 """
 
 from __future__ import annotations
@@ -12,7 +15,6 @@ import math
 from ezdxf.document import Drawing
 
 from cad_copilot.schemas.detection import DetectedDimension, DetectedWall
-from cad_copilot.standards.dimstyles import setup_dimstyles
 from cad_copilot.standards.layers import setup_layers
 
 
@@ -34,6 +36,58 @@ def _wall_has_dimension(
             return True
 
     return False
+
+
+def _setup_matching_dimstyle(doc: Drawing) -> str:
+    """Crea un dimstyle IRAM_ARQ que se adapta al DXF existente.
+
+    Si el DXF ya tiene cotas, copia las proporciones de tamaño del dimstyle
+    existente más usado. Si no, usa valores por defecto para metros (DIMSCALE=1).
+    """
+    name = "IRAM_ARQ"
+    if name in doc.dimstyles:
+        return name
+
+    # Detectar dimstyle más usado en cotas existentes
+    msp = doc.modelspace()
+    existing_styles: dict[str, int] = {}
+    for entity in msp:
+        if entity.dxftype() == "DIMENSION":
+            ds = getattr(entity.dxf, "dimstyle", "Standard")
+            existing_styles[ds] = existing_styles.get(ds, 0) + 1
+
+    # Copiar proporciones del dimstyle más usado
+    ref_dimtxt = 0.3  # default para metros
+    ref_dimasz = 0.15
+    ref_dimscale = 1.0
+
+    if existing_styles:
+        most_used = max(existing_styles, key=existing_styles.get)
+        try:
+            ref_ds = doc.dimstyles.get(most_used)
+            ref_dimtxt = getattr(ref_ds.dxf, "dimtxt", ref_dimtxt)
+            ref_dimasz = getattr(ref_ds.dxf, "dimasz", ref_dimasz)
+            ref_dimscale = getattr(ref_ds.dxf, "dimscale", ref_dimscale)
+        except Exception:
+            pass
+
+    ds = doc.dimstyles.new(name)
+    ds.dxf.dimtxt = ref_dimtxt
+    ds.dxf.dimasz = ref_dimasz
+    ds.dxf.dimscale = ref_dimscale
+    ds.dxf.dimexe = ref_dimtxt * 0.5
+    ds.dxf.dimexo = ref_dimtxt * 0.25
+    ds.dxf.dimgap = ref_dimtxt * 0.25
+    ds.dxf.dimdec = 2
+    ds.dxf.dimtad = 1  # texto arriba
+    ds.dxf.dimtih = 0
+    ds.dxf.dimtoh = 0
+    ds.dxf.dimclrd = 3  # verde
+    ds.dxf.dimclre = 3
+    ds.dxf.dimclrt = 3
+    ds.dxf.dimlunit = 2  # decimal
+
+    return name
 
 
 def add_missing_dimensions(
@@ -60,10 +114,8 @@ def add_missing_dimensions(
     Returns:
         Cantidad de cotas agregadas.
     """
-    # Asegurar que existan layers y dimstyles profesionales
     setup_layers(doc)
-    if dimstyle == "IRAM_ARQ":
-        setup_dimstyles(doc, scale=scale)
+    actual_dimstyle = _setup_matching_dimstyle(doc)
 
     msp = doc.modelspace()
     count = 0
@@ -75,12 +127,11 @@ def add_missing_dimensions(
         if _wall_has_dimension(wall, existing_dimensions):
             continue
 
-        # Agregar cota aligned
         dim = msp.add_aligned_dim(
             p1=wall.start,
             p2=wall.end,
             distance=offset,
-            dimstyle=dimstyle,
+            dimstyle=actual_dimstyle,
             override={"layer": "A-ANNO-DIMS"},
         )
         dim.render()

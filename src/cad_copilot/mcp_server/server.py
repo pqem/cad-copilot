@@ -979,9 +979,9 @@ def document_dxf(
     dim_count = add_missing_dimensions(doc, walls, dims, scale=scale)
     lines.append(f"Cotas agregadas: {dim_count}")
 
-    # 3. Agregar cartela si no existe
+    # 3. Agregar cartela CPTN (siempre si se provee proyecto)
     report = analyze_completeness(doc, walls, openings, spaces, dims)
-    if not report.has_title_block and project:
+    if project:
         tb = TitleBlock(
             project=project,
             drawing_name="PLANTA",
