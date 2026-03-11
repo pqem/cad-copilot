@@ -7,6 +7,13 @@ Herramientas disponibles:
 - get_floor_plan_schema: Devuelve el JSON Schema del modelo FloorPlan.
 - calculate_norms: Calcula verificaciones normativas CUMPLE/NO CUMPLE.
 - generate_norm_table_dxf: Genera tabla DXF con verificaciones para el municipio.
+- read_dxf: Lee y analiza un DXF existente (Fase 4).
+- detect_elements: Detecta muros, aberturas, espacios y cotas.
+- suggest_missing: Sugiere documentación faltante.
+- add_dimensions: Agrega cotas a muros no cotados.
+- add_norm_table: Agrega tabla normativa desde espacios detectados.
+- add_title_block_tool: Agrega cartela CPTN.
+- document_dxf: Todo-en-uno: analiza, detecta y documenta.
 """
 
 from __future__ import annotations
@@ -23,11 +30,26 @@ from cad_copilot.schemas.project import FloorPlan
 from cad_copilot.schemas.terrain import Terrain
 from cad_copilot.standards.norms import calcular_normas, formatear_resultado_texto
 
+from cad_copilot.documenter.auto_dimensions import add_missing_dimensions
+from cad_copilot.documenter.norm_compliance import (
+    add_norm_table_to_layout,
+    calculate_norms_from_detected,
+)
+from cad_copilot.documenter.suggestions import analyze_completeness
+from cad_copilot.documenter.title_block import add_title_block_to_existing
+from cad_copilot.reader.analyzer import analyze_dxf, read_dxf as _read_dxf
+from cad_copilot.reader.dimension_detector import detect_dimensions
+from cad_copilot.reader.opening_detector import detect_openings, detect_openings_from_arcs
+from cad_copilot.reader.space_detector import detect_spaces
+from cad_copilot.reader.wall_detector import detect_walls
+from cad_copilot.schemas.layout import TitleBlock
+
 mcp = FastMCP(
     "cad-copilot",
     instructions=(
         "Servidor CAD arquitectónico para Argentina. "
         "Genera planos 2D DXF profesionales desde JSON semántico. "
+        "Lee DXF existentes y agrega documentación (cotas, tabla normas, cartela). "
         "Unidades en metros. DXF R2013. Normas IRAM/AIA."
     ),
 )
@@ -599,6 +621,385 @@ def generate_norm_table_dxf_tool(
         return f"Tabla normativa DXF generada: {path} | Estado: {estado}"
     except Exception as exc:
         return f"ERROR al generar tabla normativa DXF: {exc}"
+
+
+# ---------------------------------------------------------------------------
+# Tool: read_dxf (Fase 4)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def read_dxf(path: str) -> str:
+    """Lee y analiza un archivo DXF existente.
+
+    Extrae metadata, layers, bloques, estadísticas de entidades,
+    dimstyles, textstyles y bounding box del dibujo.
+
+    Args:
+        path: Ruta absoluta al archivo .dxf a analizar.
+
+    Returns:
+        Análisis estructurado del DXF con toda la información extraída.
+    """
+    try:
+        analysis = analyze_dxf(path)
+    except FileNotFoundError:
+        return f"ERROR: Archivo no encontrado — {path}"
+    except ValueError as exc:
+        return f"ERROR: {exc}"
+    except Exception as exc:
+        return f"ERROR al leer DXF: {exc}"
+
+    lines = [
+        f"ANÁLISIS DXF: {analysis.metadata.file_path}",
+        f"Versión: {analysis.metadata.dxf_version} | Encoding: {analysis.metadata.encoding}",
+        f"Unidades: {analysis.metadata.insunits} | Tamaño: {analysis.metadata.file_size_bytes:,} bytes",
+        f"Total entidades: {analysis.total_entities}",
+        f"Bounding box: ({analysis.bounding_box.min_point}) → ({analysis.bounding_box.max_point})",
+        f"  Dimensiones: {analysis.bounding_box.width:.2f} x {analysis.bounding_box.height:.2f}",
+        "",
+        f"LAYERS ({len(analysis.layers)}):",
+    ]
+    for layer in analysis.layers:
+        if layer.entity_count > 0:
+            lines.append(f"  {layer.name}: {layer.entity_count} entidades, color={layer.color}")
+
+    lines.append(f"\nBLOQUES ({len(analysis.blocks)}):")
+    for block in analysis.blocks:
+        lines.append(f"  {block.name}: {block.entity_count} ents, {block.insert_count} inserts")
+
+    lines.append(f"\nENTIDADES POR TIPO:")
+    for stat in analysis.entity_stats:
+        lines.append(f"  {stat.entity_type}: {stat.count}")
+
+    lines.append(f"\nDIMSTYLES: {', '.join(analysis.dimstyles)}")
+    lines.append(f"TEXTSTYLES: {', '.join(analysis.textstyles)}")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Tool: detect_elements (Fase 4)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def detect_elements(path: str) -> str:
+    """Detecta elementos arquitectónicos en un DXF existente.
+
+    Detecta muros, aberturas (puertas/ventanas), espacios/ambientes
+    y cotas existentes usando heurísticas geométricas.
+
+    Args:
+        path: Ruta absoluta al archivo .dxf a analizar.
+
+    Returns:
+        Resumen de elementos detectados con cantidades y detalles.
+    """
+    try:
+        doc = _read_dxf(path)
+    except (FileNotFoundError, ValueError) as exc:
+        return f"ERROR: {exc}"
+
+    walls = detect_walls(doc)
+    openings = detect_openings(doc)
+    arc_openings = detect_openings_from_arcs(doc)
+    spaces = detect_spaces(doc)
+    dims = detect_dimensions(doc)
+
+    all_openings = openings + arc_openings
+
+    lines = [
+        f"DETECCIÓN DE ELEMENTOS: {path}",
+        "",
+        f"MUROS DETECTADOS: {len(walls)}",
+    ]
+    if walls:
+        thicknesses = sorted(set(round(w.thickness, 2) for w in walls))
+        lines.append(f"  Espesores encontrados: {thicknesses}")
+        lines.append(f"  Longitud total: {sum(w.length for w in walls):.2f}m")
+        for w in walls[:10]:
+            lines.append(f"  {w.id}: largo={w.length:.2f}m, espesor={w.thickness:.3f}m, layer={w.layer}")
+        if len(walls) > 10:
+            lines.append(f"  ... y {len(walls) - 10} más")
+
+    lines.append(f"\nABERTURAS DETECTADAS: {len(all_openings)}")
+    doors = [o for o in all_openings if o.kind == "door"]
+    windows = [o for o in all_openings if o.kind == "window"]
+    lines.append(f"  Puertas: {len(doors)}, Ventanas: {len(windows)}")
+    for o in all_openings[:10]:
+        lines.append(f"  {o.id}: {o.kind}, ancho={o.width:.2f}m, bloque={o.block_name or 'ARC'}")
+
+    lines.append(f"\nESPACIOS DETECTADOS: {len(spaces)}")
+    for s in spaces:
+        area_str = f", área={s.area:.2f}m²" if s.area > 0 else ""
+        lines.append(f"  {s.id}: {s.name} ({s.category}){area_str}")
+
+    lines.append(f"\nCOTAS EXISTENTES: {len(dims)}")
+    if dims:
+        with_values = [d for d in dims if d.value > 0]
+        lines.append(f"  Con valor: {len(with_values)}")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Tool: suggest_missing (Fase 4)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def suggest_missing(path: str) -> str:
+    """Analiza qué documentación falta en un DXF y sugiere mejoras.
+
+    Verifica: cartela, flecha norte, cotas en muros, etiquetas de área
+    en espacios, y tabla normativa.
+
+    Args:
+        path: Ruta absoluta al archivo .dxf a analizar.
+
+    Returns:
+        Reporte de completitud con sugerencias priorizadas.
+    """
+    try:
+        doc = _read_dxf(path)
+    except (FileNotFoundError, ValueError) as exc:
+        return f"ERROR: {exc}"
+
+    walls = detect_walls(doc)
+    openings = detect_openings(doc) + detect_openings_from_arcs(doc)
+    spaces = detect_spaces(doc)
+    dims = detect_dimensions(doc)
+
+    report = analyze_completeness(doc, walls, openings, spaces, dims)
+
+    lines = [
+        f"REPORTE DE COMPLETITUD: {path}",
+        f"Score de documentación: {report.completeness_score}%",
+        "",
+        f"Cartela: {'✓' if report.has_title_block else '✗ FALTA'}",
+        f"Flecha norte: {'✓' if report.has_north_arrow else '✗ FALTA'}",
+        f"Tabla normas: {'✓' if report.has_norm_table else '✗ FALTA'}",
+        f"Muros cotados: {report.walls_with_dimensions}/{report.total_walls}",
+        f"Espacios con área: {report.spaces_with_area_labels}/{report.total_spaces}",
+    ]
+
+    if report.suggestions:
+        lines.append(f"\nSUGERENCIAS ({len(report.suggestions)}):")
+        for s in report.suggestions:
+            prio = "!" * s.priority
+            lines.append(f"  [{prio}] {s.kind}: {s.description}")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Tool: add_dimensions (Fase 4)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def add_dimensions_tool(path: str, output_path: str, scale: int = 50) -> str:
+    """Agrega cotas IRAM_ARQ a muros detectados que no tienen cota.
+
+    Lee el DXF, detecta muros, identifica cuáles no están cotados,
+    y agrega cotas profesionales (layer A-ANNO-DIMS, dimstyle IRAM_ARQ).
+
+    Args:
+        path: Ruta al DXF de entrada.
+        output_path: Ruta donde guardar el DXF modificado.
+        scale: Escala del plano (default 50 = 1:50).
+
+    Returns:
+        Cantidad de cotas agregadas y ruta del archivo.
+    """
+    try:
+        doc = _read_dxf(path)
+    except (FileNotFoundError, ValueError) as exc:
+        return f"ERROR: {exc}"
+
+    walls = detect_walls(doc)
+    dims = detect_dimensions(doc)
+    count = add_missing_dimensions(doc, walls, dims, scale=scale)
+
+    doc.saveas(output_path)
+    return f"Cotas agregadas: {count} | Archivo: {output_path}"
+
+
+# ---------------------------------------------------------------------------
+# Tool: add_norm_table (Fase 4)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def add_norm_table_tool(
+    path: str,
+    output_path: str,
+    project_name: str = "",
+) -> str:
+    """Agrega tabla de verificación normativa al DXF.
+
+    Detecta espacios con sus áreas, calcula verificación normativa
+    (iluminación, ventilación, superficie mínima) y agrega la tabla
+    en un layout de Paper Space.
+
+    Args:
+        path: Ruta al DXF de entrada.
+        output_path: Ruta donde guardar el DXF modificado.
+        project_name: Nombre del proyecto para el encabezado.
+
+    Returns:
+        Resumen de la verificación normativa y ruta del archivo.
+    """
+    try:
+        doc = _read_dxf(path)
+    except (FileNotFoundError, ValueError) as exc:
+        return f"ERROR: {exc}"
+
+    spaces = detect_spaces(doc)
+    resultado = calculate_norms_from_detected(spaces, project_name)
+
+    if resultado is None:
+        return "No se detectaron espacios con área para verificar normas."
+
+    # Crear layout para la tabla
+    layout = doc.layouts.new("Normas")
+    add_norm_table_to_layout(doc, layout, resultado)
+
+    doc.saveas(output_path)
+    estado = "CUMPLE" if resultado.cumple_todo else "NO CUMPLE"
+    return f"Tabla normativa agregada | Estado: {estado} | Archivo: {output_path}"
+
+
+# ---------------------------------------------------------------------------
+# Tool: add_title_block (Fase 4)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def add_title_block_tool(
+    path: str,
+    output_path: str,
+    project: str,
+    drawing_name: str,
+    location: str = "",
+    professional: str = "",
+    license_number: str = "",
+    date: str = "",
+    sheet: str = "1/1",
+) -> str:
+    """Agrega cartela CPTN al DXF existente.
+
+    Crea un layout de Paper Space con viewport escalado y la cartela
+    estándar CPTN con los datos del proyecto.
+
+    Args:
+        path: Ruta al DXF de entrada.
+        output_path: Ruta donde guardar el DXF modificado.
+        project: Nombre del proyecto.
+        drawing_name: Nombre del plano (ej: "PLANTA BAJA").
+        location: Ubicación de la obra.
+        professional: Nombre del profesional.
+        license_number: Número de matrícula.
+        date: Fecha del plano.
+        sheet: Número de lámina (default "1/1").
+
+    Returns:
+        Confirmación y ruta del archivo.
+    """
+    try:
+        doc = _read_dxf(path)
+    except (FileNotFoundError, ValueError) as exc:
+        return f"ERROR: {exc}"
+
+    tb = TitleBlock(
+        project=project,
+        drawing_name=drawing_name,
+        location=location,
+        professional=professional,
+        license_number=license_number,
+        date=date,
+        sheet=sheet,
+    )
+
+    add_title_block_to_existing(doc, tb)
+    doc.saveas(output_path)
+    return f"Cartela CPTN agregada | Proyecto: {project} | Archivo: {output_path}"
+
+
+# ---------------------------------------------------------------------------
+# Tool: document_dxf (Fase 4 — todo-en-uno)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def document_dxf(
+    path: str,
+    output_path: str,
+    project: str = "",
+    professional: str = "",
+    license_number: str = "",
+    location: str = "",
+    date: str = "",
+    scale: int = 50,
+) -> str:
+    """Analiza un DXF existente y agrega toda la documentación faltante.
+
+    Flujo completo:
+    1. Lee y analiza el DXF
+    2. Detecta muros, aberturas, espacios y cotas
+    3. Agrega cotas a muros no cotados
+    4. Agrega cartela CPTN si no existe
+    5. Genera reporte de completitud
+
+    Args:
+        path: Ruta al DXF de entrada.
+        output_path: Ruta donde guardar el DXF documentado.
+        project: Nombre del proyecto.
+        professional: Nombre del profesional.
+        license_number: Matrícula profesional.
+        location: Ubicación de la obra.
+        date: Fecha del plano.
+        scale: Escala del plano (default 50).
+
+    Returns:
+        Reporte completo de lo que se detectó y documentó.
+    """
+    try:
+        doc = _read_dxf(path)
+    except (FileNotFoundError, ValueError) as exc:
+        return f"ERROR: {exc}"
+
+    # 1. Detectar
+    walls = detect_walls(doc)
+    openings = detect_openings(doc) + detect_openings_from_arcs(doc)
+    spaces = detect_spaces(doc)
+    dims = detect_dimensions(doc)
+
+    lines = [
+        f"DOCUMENTACIÓN DXF: {path}",
+        f"Detectados: {len(walls)} muros, {len(openings)} aberturas, "
+        f"{len(spaces)} espacios, {len(dims)} cotas",
+    ]
+
+    # 2. Agregar cotas faltantes
+    dim_count = add_missing_dimensions(doc, walls, dims, scale=scale)
+    lines.append(f"Cotas agregadas: {dim_count}")
+
+    # 3. Agregar cartela si no existe
+    report = analyze_completeness(doc, walls, openings, spaces, dims)
+    if not report.has_title_block and project:
+        tb = TitleBlock(
+            project=project,
+            drawing_name="PLANTA",
+            location=location,
+            professional=professional,
+            license_number=license_number,
+            date=date,
+            sheet="1/1",
+        )
+        add_title_block_to_existing(doc, tb)
+        lines.append("Cartela CPTN agregada")
+
+    # 4. Guardar
+    doc.saveas(output_path)
+    lines.append(f"\nArchivo documentado: {output_path}")
+    lines.append(f"Score de completitud: {report.completeness_score}%")
+
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
