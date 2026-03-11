@@ -27,23 +27,26 @@ class TestSetupDimstyles:
         setup_dimstyles(doc, scale=50)
         assert "IRAM_ARQ" in doc.dimstyles
 
-    def test_dimscale_matches_scale_50(self):
+    def test_dimscale_always_one(self):
+        """DIMSCALE=1 siempre — los valores ya están en metros."""
         doc = ezdxf.new("R2013", setup=True)
         setup_dimstyles(doc, scale=50)
         style = doc.dimstyles.get("IRAM_ARQ")
-        assert style.dxf.dimscale == pytest.approx(50.0)
+        assert style.dxf.dimscale == pytest.approx(1.0)
 
-    def test_dimscale_matches_scale_100(self):
+    def test_dimtxt_scaled_to_meters_50(self):
+        """A escala 1:50, dimtxt = 2.5mm × 50 / 1000 = 0.125m."""
+        doc = ezdxf.new("R2013", setup=True)
+        setup_dimstyles(doc, scale=50)
+        style = doc.dimstyles.get("IRAM_ARQ")
+        assert style.dxf.dimtxt == pytest.approx(0.125)
+
+    def test_dimtxt_scaled_to_meters_100(self):
+        """A escala 1:100, dimtxt = 2.5mm × 100 / 1000 = 0.25m."""
         doc = ezdxf.new("R2013", setup=True)
         setup_dimstyles(doc, scale=100)
         style = doc.dimstyles.get("IRAM_ARQ")
-        assert style.dxf.dimscale == pytest.approx(100.0)
-
-    def test_dimscale_matches_scale_25(self):
-        doc = ezdxf.new("R2013", setup=True)
-        setup_dimstyles(doc, scale=25)
-        style = doc.dimstyles.get("IRAM_ARQ")
-        assert style.dxf.dimscale == pytest.approx(25.0)
+        assert style.dxf.dimtxt == pytest.approx(0.25)
 
     def test_idempotent_no_error_on_double_call(self):
         """Llamar dos veces no debe lanzar error."""

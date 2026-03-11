@@ -39,15 +39,18 @@ class TestCreateDocument:
         doc = create_document()
         assert "A-DOOR" in doc.layers
 
-    def test_custom_scale_50(self):
+    def test_custom_scale_50_dimscale_1(self):
+        """DIMSCALE=1 siempre — valores pre-calculados en metros."""
         doc = create_document(scale=50)
         style = doc.dimstyles.get("IRAM_ARQ")
-        assert style.dxf.dimscale == pytest.approx(50.0)
+        assert style.dxf.dimscale == pytest.approx(1.0)
+        assert style.dxf.dimtxt == pytest.approx(0.125)
 
-    def test_custom_scale_100(self):
+    def test_custom_scale_100_dimscale_1(self):
         doc = create_document(scale=100)
         style = doc.dimstyles.get("IRAM_ARQ")
-        assert style.dxf.dimscale == pytest.approx(100.0)
+        assert style.dxf.dimscale == pytest.approx(1.0)
+        assert style.dxf.dimtxt == pytest.approx(0.25)
 
     def test_modelspace_accessible(self):
         doc = create_document()

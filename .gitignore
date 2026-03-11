@@ -12,6 +12,10 @@ build/
 # DXF output (generados, no versionables)
 output/*.dxf
 
+# Sample files (large DXF/DWG, keep local only)
+samples/*.dxf
+samples/*.dwg
+
 # IDE
 .vscode/
 .idea/
