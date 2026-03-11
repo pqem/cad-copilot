@@ -16,6 +16,7 @@ from cad_copilot.schemas.layout import (
 from cad_copilot.schemas.opening import Opening, OpeningMechanism, OpeningType
 from cad_copilot.schemas.project import FloorPlan
 from cad_copilot.schemas.space import Space, SpaceFunction
+from cad_copilot.schemas.terrain import RetirosConfig, Terrain, Zonificacion
 from cad_copilot.schemas.wall import Wall, WallClassification
 
 __all__ = [
@@ -45,4 +46,8 @@ __all__ = [
     "TitleBlock",
     # Proyecto
     "FloorPlan",
+    # Terreno
+    "RetirosConfig",
+    "Terrain",
+    "Zonificacion",
 ]

@@ -5,6 +5,8 @@ Herramientas disponibles:
 - validate_floor_plan: Valida el JSON de un FloorPlan sin generar el DXF.
 - list_available_blocks: Lista todos los bloques paramétricos disponibles.
 - get_floor_plan_schema: Devuelve el JSON Schema del modelo FloorPlan.
+- calculate_norms: Calcula verificaciones normativas CUMPLE/NO CUMPLE.
+- generate_norm_table_dxf: Genera tabla DXF con verificaciones para el municipio.
 """
 
 from __future__ import annotations
@@ -15,8 +17,11 @@ import tempfile
 from mcp.server.fastmcp import FastMCP
 from pydantic import ValidationError
 
+from cad_copilot.engine.norm_table import generate_norm_table_dxf as _generate_norm_table_dxf
 from cad_copilot.engine.renderer import render_floor_plan
 from cad_copilot.schemas.project import FloorPlan
+from cad_copilot.schemas.terrain import Terrain
+from cad_copilot.standards.norms import calcular_normas, formatear_resultado_texto
 
 mcp = FastMCP(
     "cad-copilot",
@@ -457,6 +462,143 @@ def get_example_floor_plan() -> str:
         },
     }
     return json.dumps(example, indent=2, ensure_ascii=False)
+
+
+# ---------------------------------------------------------------------------
+# Tool: calculate_norms
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def calculate_norms(floor_plan_json: str, terrain_json: str | None = None) -> str:
+    """Calcula las verificaciones normativas del proyecto (CUMPLE/NO CUMPLE).
+
+    Verifica el cumplimiento del Código de Edificación de Neuquén/Plottier:
+    - Iluminación natural por ambiente (relación vidrio/piso)
+    - Ventilación natural por ambiente (superficie practicable/piso)
+    - Superficie mínima por función de local
+    - FOS y FOT del terreno (si se proveen datos de terreno)
+
+    Args:
+        floor_plan_json: JSON del FloorPlan como string. Debe incluir 'walls'
+            y 'spaces' para calcular iluminación/ventilación/área.
+        terrain_json: JSON del Terrain como string (opcional). Si se provee,
+            calcula FOS y FOT. Campos: superficie, frente, fondo, zonificacion,
+            fos_max, fot_max, retiros (frente, lateral_izq, lateral_der, fondo).
+            Ejemplo: {"superficie": 300, "frente": 10, "fondo": 30, "fos_max": 0.60,
+            "fot_max": 1.20, "retiros": {"frente": 3, "fondo": 3}}
+
+    Returns:
+        Tabla de verificación normativa formateada como texto con CUMPLE/NO CUMPLE.
+    """
+    # Parsear FloorPlan
+    try:
+        fp_data = json.loads(floor_plan_json)
+    except json.JSONDecodeError as exc:
+        return f"ERROR: floor_plan_json inválido — {exc}"
+
+    try:
+        floor_plan = FloorPlan.model_validate(fp_data)
+    except ValidationError as exc:
+        errors = exc.errors()
+        lines = [f"ERROR: {len(errors)} error(s) en floor_plan_json:"]
+        for err in errors:
+            loc = " → ".join(str(p) for p in err["loc"])
+            lines.append(f"  • {loc}: {err['msg']}")
+        return "\n".join(lines)
+
+    # Parsear Terrain (opcional)
+    terrain: Terrain | None = None
+    if terrain_json:
+        try:
+            t_data = json.loads(terrain_json)
+        except json.JSONDecodeError as exc:
+            return f"ERROR: terrain_json inválido — {exc}"
+
+        try:
+            terrain = Terrain.model_validate(t_data)
+        except ValidationError as exc:
+            errors = exc.errors()
+            lines = [f"ERROR: {len(errors)} error(s) en terrain_json:"]
+            for err in errors:
+                loc = " → ".join(str(p) for p in err["loc"])
+                lines.append(f"  • {loc}: {err['msg']}")
+            return "\n".join(lines)
+
+    # Calcular normas
+    try:
+        resultado = calcular_normas(floor_plan, terrain)
+        return formatear_resultado_texto(resultado)
+    except Exception as exc:
+        return f"ERROR al calcular normas: {exc}"
+
+
+# ---------------------------------------------------------------------------
+# Tool: generate_norm_table_dxf
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def generate_norm_table_dxf_tool(
+    floor_plan_json: str,
+    output_path: str,
+    terrain_json: str | None = None,
+) -> str:
+    """Genera una tabla DXF con verificaciones normativas para el municipio.
+
+    La tabla incluye todos los ítems de verificación (iluminación, ventilación,
+    superficies, FOS/FOT) con resultado CUMPLE/NO CUMPLE, lista para insertar
+    en el Paper Space del plano municipal.
+
+    Args:
+        floor_plan_json: JSON del FloorPlan como string.
+        output_path: Ruta absoluta donde guardar el DXF de la tabla normativa.
+        terrain_json: JSON del Terrain como string (opcional). Si se provee,
+            incluye verificación FOS/FOT en la tabla.
+
+    Returns:
+        Ruta del DXF generado, o mensaje de error.
+    """
+    # Parsear FloorPlan
+    try:
+        fp_data = json.loads(floor_plan_json)
+    except json.JSONDecodeError as exc:
+        return f"ERROR: floor_plan_json inválido — {exc}"
+
+    try:
+        floor_plan = FloorPlan.model_validate(fp_data)
+    except ValidationError as exc:
+        errors = exc.errors()
+        lines = [f"ERROR: {len(errors)} error(s) en floor_plan_json:"]
+        for err in errors:
+            loc = " → ".join(str(p) for p in err["loc"])
+            lines.append(f"  • {loc}: {err['msg']}")
+        return "\n".join(lines)
+
+    # Parsear Terrain (opcional)
+    terrain: Terrain | None = None
+    if terrain_json:
+        try:
+            t_data = json.loads(terrain_json)
+        except json.JSONDecodeError as exc:
+            return f"ERROR: terrain_json inválido — {exc}"
+
+        try:
+            terrain = Terrain.model_validate(t_data)
+        except ValidationError as exc:
+            errors = exc.errors()
+            lines = [f"ERROR: {len(errors)} error(s) en terrain_json:"]
+            for err in errors:
+                loc = " → ".join(str(p) for p in err["loc"])
+                lines.append(f"  • {loc}: {err['msg']}")
+            return "\n".join(lines)
+
+    # Calcular normas y generar DXF
+    try:
+        resultado = calcular_normas(floor_plan, terrain)
+        path = _generate_norm_table_dxf(resultado, output_path)
+        estado = "CUMPLE" if resultado.cumple_todo else "NO CUMPLE"
+        return f"Tabla normativa DXF generada: {path} | Estado: {estado}"
+    except Exception as exc:
+        return f"ERROR al generar tabla normativa DXF: {exc}"
 
 
 # ---------------------------------------------------------------------------
